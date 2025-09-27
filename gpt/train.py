@@ -1,10 +1,64 @@
+import os
+import requests
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+import math
+import time
 
 import wandb
 import time
 
 from .utils import *
 
+
+
+
+
+
+def dataset(url, filepath):
+    if not os.path.exists(filepath):
+        print(f"Downloading dataset from {url}...")
+        response = requests.get(url)
+        with open(filepath, 'wb') as f:
+            f.write(response.content)
+        print(f"Dataset downloaded and saved to {filepath}.")
+    else:
+        print(f"Dataset already exists at {filepath}.")
+
+
+url = "https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt"
+filepath = "input.txt"
+device=torch.device('cuda:0')
+
+
+dataset(url, filepath)
+with open('input.txt', 'r') as f:
+    text = f.read()
+
+chars = sorted(list(set(text)))
+vocab_size = len(chars)
+
+str2idx = { ch:i for i,ch in enumerate(chars) }
+idx2str = { i:ch for i,ch in enumerate(chars) } 
+
+
+def encode(text):
+    return torch.tensor([str2idx[c] for c in text], dtype=torch.long)
+
+def decode(indices):
+    return ''.join([idx2str[i.item()] for i in indices])
+
+def train_test_split(data, device):
+    n = int(0.9 * len(data))
+    train_data = data[:n].to(device)
+    test_data = data[n:].to(device)
+    return train_data, test_data
+
+data = encode(text)
+device = torch.device('cuda:0')
+train_data, test_data = train_test_split(data, device)
 
 def train(model, train_data, val_data, batch_size, seq_length, learning_rate, num_epochs, wandb_project=None, wandb_run_name=None, timeout=None):
     
@@ -107,3 +161,46 @@ def train(model, train_data, val_data, batch_size, seq_length, learning_rate, nu
         model.train()
 
     return model, val_losses
+
+
+
+
+vocab_size = 512
+dim = 384
+num_heads = 8
+num_layers = 8
+seq_length = 512
+dropout = 0.1
+batch_size = 64
+learning_rate = 3e-4
+num_epochs = 500
+
+
+model = NanoGPT(
+    vocab_size=vocab_size,
+    dim=dim,
+    num_heads=num_heads,
+    num_layers=num_layers,
+    seq_length=seq_length,
+    dropout=dropout
+).to(device)
+
+model.config = type('Config', (), {
+    'n_layer': num_layers,
+    'n_head': num_heads,
+    'n_embd': dim,
+    'block_size': seq_length
+})
+
+model, validation_losses = train(
+    model,
+    train_data,
+    test_data,
+    batch_size=batch_size,
+    seq_length=seq_length,
+    learning_rate=learning_rate,
+    num_epochs=num_epochs,
+    wandb_project=None,
+    wandb_run_name=None,
+    timeout=None
+)
